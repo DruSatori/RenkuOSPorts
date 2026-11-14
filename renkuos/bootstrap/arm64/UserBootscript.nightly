@@ -27,11 +27,19 @@ while sleep 600; do
 	fi
 done) &
 
-HP=$(command -v haikuporter) || { mark "no haikuporter"; mark "end $(date +%s)"; exit 1; }
-# Phase 1 replaced the bootstrap Python with the full one.
-PY=/boot/system/bin/python3.10
+# The host's HaikuPorter checkout, from prepare-nightly.sh, so that the guest and
+# the host run the same HaikuPorter. It needs Python 3.12 or newer.
+if [ -e /boot/home/haikuporter.tar ]; then
+	rm -rf /boot/home/haikuporter
+	(cd /boot/home && tar -xf haikuporter.tar) && rm /boot/home/haikuporter.tar
+	sync
+fi
+HP=/boot/home/haikuporter/haikuporter.py
+[ -f $HP ] || { mark "no haikuporter"; mark "end $(date +%s)"; exit 1; }
+PY=/boot/system/bin/python3.14
 $PY -c 'import zlib, lzma, bz2, ssl' 2> /dev/null ||
 	{ mark "no full python"; mark "end $(date +%s)"; exit 1; }
+mark "haikuporter: $($PY $HP --version 2>&1 | tail -1)"
 build() {
 	log=/boot/home/nightly-$1.log; shift
 	t0=$(date +%s)
@@ -100,8 +108,8 @@ for try in 1 2; do
 		[ $(cat $m 2> /dev/null | wc -l) -ge $try ] && continue
 		# HaikuPorter lists the source package only when it parses the recipe
 		# with --create-source-packages. It parses a recipe again only when the
-		# recipe is newer than the port's main dependency info (the guest's
-		# HaikuPorter) or its marker (newer HaikuPorter), so remove both.
+		# recipe is newer than the port's dependency info marker, or, in the
+		# bootstrap image's older HaikuPorter, its main dependency info. Remove both.
 		rm -f repository/$port-[0-9]*.DependencyInfo repository/$port-[0-9]*.DependencyInfoMarker
 		build ${port}_source $PY $HP -y --no-package-obsoletion --create-source-packages \
 			--no-git-repo $port

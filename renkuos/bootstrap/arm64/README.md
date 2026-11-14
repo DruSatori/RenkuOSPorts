@@ -66,8 +66,9 @@ Each finished port is recorded, so a reboot resumes where the last boot stopped.
 `UserBootscript.nightly` runs in the same image after Phase 1. Start it with
 `run-nightly.sh <nightly-ports.txt> <nightly-recipes.txt>`, using the lists from
 `phase2/resolve.py`, with QEMU off. Set `PORTS_TREE` to the RenkuOSPorts checkout that
-holds the `download/` directories, and `MAKEFILE_ENGINE` to a
-`makefile_engine-*-any.hpkg` from any Haiku build. `run-nightly.sh` calls
+holds the `download/` directories, `MAKEFILE_ENGINE` to a
+`makefile_engine-*-any.hpkg` from any Haiku build, and `HAIKUPORTER` to `haikuporter.py`
+in the HaikuPorter checkout the host uses. `run-nightly.sh` calls
 `prepare-nightly.sh`, which makes these changes to the image:
 
 - **Inputs.** It writes `renkuosports.tar` (the tree at `PORTS_REF`, by default
@@ -89,6 +90,13 @@ holds the `download/` directories, and `MAKEFILE_ENGINE` to a
   image leaves out. HaikuPorter only sees it as a system package. The script recompresses
   it with zlib, because the arm64 bootstrap `package` tool has no zstd and HaikuPorter
   skips a package it cannot read without saying why.
+- **The host's HaikuPorter and Python 3.14.** The guest runs the HaikuPorter checkout
+  that `HAIKUPORTER` points to, packed into `haikuporter.tar`, instead of the
+  `haikuporter` package of the bootstrap image. The bootstrap package is older and
+  keeps its repository differently, so a fix tested with the host's HaikuPorter could
+  do nothing in the guest. HaikuPorter needs Python 3.12 or newer, so our `python3.14`
+  becomes a system package. When a newer build of a swapped package appears, the older
+  one moves to `/boot/home/removed-old`.
 - **debug_server kills crashed programs** instead of waiting for a debugger.
 - **A regular `haiku`, if `HAIKU_GEN` is set.** The bootstrap `haiku` package leaves out
   libmail, libmedia, libgame, and a few other libraries that ports such as pe and libsdl2

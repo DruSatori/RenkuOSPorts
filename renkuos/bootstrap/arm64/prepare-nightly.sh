@@ -15,6 +15,8 @@
 # directory of an x86_64 build, for the packages the regular haiku requires that
 # no arm64 build makes.
 # SOURCES_LIST, if set, is a file of ports to make source packages of.
+# HAIKUPORTER is haikuporter.py in the HaikuPorter checkout the host runs. The
+# guest runs the same checkout, so that both agree on how the repository works.
 # REBUILD=1 builds every port in the list again, for a changed recipe: it
 # clears the port's marker and moves its main package out of HaikuPorter's
 # packages directory. Bump the recipe's REVISION, because the host keeps the
@@ -47,10 +49,18 @@ rm -rf $W; mkdir -p $W
 # nightly pass (see run-nightly.sh). mkdepend is what makefile_engine needs.
 # HaikuPorter also writes the version of a system package into a port's plain
 # requires, so gcc built beside the bootstrap binutils requires cmd:as 2.41.
+# HaikuPorter itself needs Python 3.12 or newer, so python3.14 joins them.
 real=
-for p in flex bison binutils mkdepend; do
+for p in flex bison binutils mkdepend python3.14; do
 	[ -n "$(newest $p)" ] && real="$real $p"
 done
+[[ " $real " = *" python3.14 "* ]] || { echo "no python3.14 package in $OUT: HaikuPorter needs it"; exit 1; }
+
+# The guest runs the host's HaikuPorter checkout, not the haikuporter package
+# from the bootstrap image, which is older and keeps the repository differently.
+hpdir=$(dirname "${HAIKUPORTER:?set HAIKUPORTER to haikuporter.py in a HaikuPorter checkout}")
+git -C "$hpdir" archive --format=tar --prefix=haikuporter/ -o $W/haikuporter.tar HEAD
+echo "haikuporter: $(git -C "$hpdir" describe --tags --always)"
 
 # makefile_engine comes from Haiku's own build, which the bootstrap image leaves
 # out. Recompress it with zlib, because the arm64 bootstrap package tool cannot
@@ -128,13 +138,17 @@ else
 fi
 echo $sha > $W/nightly-tree.next
 
-cmds=("mkdir $H/removed-bootstrap")
+cmds=("mkdir $H/removed-bootstrap" "mkdir $H/removed-old")
 for p in $real; do
 	for f in $(grep -a -o "${p}_bootstrap-[^ ]*\.hpkg" $BFSQ_OUT); do
 		cmds+=("cp $SP/$f $H/removed-bootstrap/$f" "rm $SP/$f")
 	done
 	f=$(newest $p)
 	grep -a -q " ${f##*/}$" $BFSQ_OUT || cmds+=("cp :$f $SP/${f##*/}")
+	# A newer build replaces the one installed before it.
+	for o in $(grep -a -o " ${p//./\\.}-[0-9][^ ]*\.hpkg$" $BFSQ_OUT); do
+		[ "$o" = "${f##*/}" ] || cmds+=("cp $SP/$o $H/removed-old/$o" "rm $SP/$o")
+	done
 done
 grep -a -q " ${me##*/}$" $BFSQ_OUT || cmds+=("cp :$me $SP/${me##*/}")
 for p in ${haiku:+haiku haiku_devel}; do
@@ -153,7 +167,6 @@ done
 [ -n "$haiku" ] && ! grep -a -q " Locale settings$" $BFSQ_OUT &&
 	cmds+=("cp :$W/locale.settings '$H/config/settings/Locale settings'")
 if [ -n "$REBUILD" ]; then
-	cmds+=("mkdir $H/removed-old")
 	for p in $(cat "$ports"); do
 		cmds+=("rm $H/nightly/$p")
 		for f in $(awk -v d="$H/haikuports/packages:" '$0 == d { f = 1; next }
@@ -169,6 +182,7 @@ cmds+=("mkdir $H/config/settings/system/debug_server"
 	"rm $H/config/settings/system/debug_server/settings"
 	"cp :$W/debug_server.settings $H/config/settings/system/debug_server/settings"
 	"rm $H/renkuosports.tar" "cp :$W/renkuosports.tar $H/renkuosports.tar"
+	"rm $H/haikuporter.tar" "cp :$W/haikuporter.tar $H/haikuporter.tar"
 	"rm $H/renkuosports.removed" "rm $H/nightly-tree.next" "cp :$W/nightly-tree.next $H/nightly-tree.next"
 	"rm $H/nightly-ports.txt" "cp :$ports $H/nightly-ports.txt"
 	"rm $H/nightly-sources.txt" "cp :$W/nightly-sources.txt $H/nightly-sources.txt"
@@ -195,8 +209,9 @@ for p in ${haiku:+haiku haiku_devel}; do
 done
 for p in $real; do
 	grep -a -q "${p}_bootstrap-" $BFSQ_OUT && { echo "${p}_bootstrap is still installed"; bad=1; }
+	[ $(grep -a -c " ${p//./\\.}-[0-9][^ ]*\.hpkg$" $BFSQ_OUT) = 1 ] || { echo "more than one $p package installed"; bad=1; }
 done
-for f in renkuosports.tar nightly-tree.next ${base:+renkuosports.removed} nightly-ports.txt nightly-sources.txt \
+for f in renkuosports.tar haikuporter.tar nightly-tree.next ${base:+renkuosports.removed} nightly-ports.txt nightly-sources.txt \
 		nightly-downloads.tar settings ${haiku:+"Locale settings"}; do
 	grep -a -q " $f$" $BFSQ_OUT || { echo "missing in image: $f"; bad=1; }
 done
