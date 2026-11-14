@@ -1,6 +1,6 @@
 #!/bin/bash
 # Usage: update-packages.sh [<port>...]
-# Rebuilds the arm64 packages whose recipes changed on bootstrap/arm64 since the
+# Rebuilds the arm64 packages whose recipes changed on PORTS_BRANCH since the
 # last successful run, the way HaikuPorter's buildmaster "update" does: it diffs
 # the tree from the commit in $BUILD_ROOT/processed_rev, asks HaikuPorter which
 # active ports the changed files belong to, and builds those in the guest. With
@@ -15,6 +15,7 @@
 #                HaikuPorter checks recipes against
 #   PORTS_LIST   the nightly port list (default $BUILD_ROOT/phase2/nightly-ports.txt)
 #   RECIPES_LIST the nightly recipe list (default .../phase2/nightly-recipes.txt)
+#   PORTS_BRANCH the RenkuOSPorts branch to build (default: main)
 #   SOURCE_PORTS ports to make source packages of (default: zlib zstd, which an
 #                arm64 Haiku build unpacks for its zlib and zstd build features)
 set -e
@@ -28,7 +29,8 @@ SOURCE_PORTS=${SOURCE_PORTS-zlib zstd}
 W=$R/update
 mkdir -p $W
 
-git -C "$TREE" fetch -q origin bootstrap/arm64
+BRANCH=${PORTS_BRANCH:-main}
+git -C "$TREE" fetch -q origin "$BRANCH"
 new=$(git -C "$TREE" rev-parse FETCH_HEAD)
 old=$(cat $R/processed_rev 2> /dev/null) ||
 	{ echo "no $R/processed_rev: write the commit the packages were built from"; exit 1; }
@@ -52,7 +54,7 @@ if [ $# -gt 0 ]; then
 	printf '%s\n' "$@" > $W/ports
 	sources
 else
-	[ $old = $new ] && { echo "no new commits on bootstrap/arm64"; exit 0; }
+	[ $old = $new ] && { echo "no new commits on $BRANCH"; exit 0; }
 	# No ALLOW_UNTESTED, as in the guest: an untested newer recipe, such as gcc 15,
 	# is not the active version there.
 	cat > $W/haikuports.conf << EOF
