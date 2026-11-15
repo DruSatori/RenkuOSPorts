@@ -183,6 +183,13 @@ BUILD()
 		export OPT+=" -O0"
 		maybeEnableOptimizations=
 	fi
+	# arm64: packages are built under emulation, where the PGO training run
+	# would take hours. Build -O2 without LTO or PGO, in parallel.
+	if [ "$effectiveTargetArchitecture" = arm64 ]; then
+		export OPT="-Wall -O2"
+		maybeEnableOptimizations=
+		forceParallelBuild=true
+	fi
 
 	runConfigure --omit-dirs binDir,includeDir ./configure \
 		--bindir=$commandBinDir \

@@ -1,5 +1,5 @@
 name: arm64 packages
-# Rebuilds the arm64 packages whose recipes changed on bootstrap/arm64, in the
+# Rebuilds the arm64 packages whose recipes changed on main, in the
 # Haiku guest on the self-hosted runner, and publishes the package repository
 # to the arm64-packages release. See renkuos/bootstrap/arm64/README.md.
 #
@@ -68,5 +68,5 @@ jobs:
               --notes 'Rolling release of the arm64 package repository.'
           gh release upload arm64-packages --clobber $out/*.tar $out/*.sha256
           gh release edit arm64-packages --notes "Rolling release of the arm64 package repository.
-          Built from bootstrap/arm64 at $(git -C $PORTS_TREE rev-parse --short HEAD) on $(date -u +%F)."
+          Built from main at $(git -C $PORTS_TREE rev-parse --short HEAD) on $(date -u +%F)."
           rm -f $BUILD_ROOT/unpublished

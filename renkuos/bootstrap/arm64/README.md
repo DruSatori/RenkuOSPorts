@@ -47,7 +47,8 @@ The host tools need two paths in place:
    `/boot/system/packages`. No `_bootstrap` package set, on any architecture, provides
    perl, autoconf, diffutils, or libiconv.
 3. Builds gettext, xz_utils, and the full python3.10 the same way. This needs the gettext
-   cut on the `bootstrap/arm64` branch, which takes groff and makeinfo out of the cycle.
+   cut, which takes groff and makeinfo out of the cycle. It is now an arm64 condition in
+   the gettext recipe on `main`.
    `--do-bootstrap` is not used: with truncated system packages it obsoleted every package
    and then crashed.
 4. Runs HaikuPorter with the full Python, which it needs to unpack `.tar.gz` sources, and
@@ -72,7 +73,7 @@ in the HaikuPorter checkout the host uses. `run-nightly.sh` calls
 `prepare-nightly.sh`, which makes these changes to the image:
 
 - **Inputs.** It writes `renkuosports.tar` (the tree at `PORTS_REF`, by default
-  `bootstrap/arm64`), the port list, and `nightly-downloads.tar` into `/boot/home`. The
+  `main`), the port list, and `nightly-downloads.tar` into `/boot/home`. The
   sources come from `fetch-recipe.sh`. The guest keeps the tree and records its commit
   in `/boot/home/nightly-tree.<commit>`, so later runs send only the files changed since
   then, plus a list of removed files. HaikuPorter parses a recipe again whenever it is
@@ -147,8 +148,10 @@ code on our own machine.
 
 `update-packages.sh` follows HaikuPorter's buildmaster `update`:
 
-1. It diffs `bootstrap/arm64` from the commit in `$BUILD_ROOT/processed_rev` to the
-   branch's head.
+1. It diffs `main` (or `PORTS_BRANCH`) from the commit in `$BUILD_ROOT/processed_rev`
+   to the branch's head. Until 2026-11-14 it built the `bootstrap/arm64` branch, which
+   carried the Phase 1 recipe changes. Those are now arm64 conditions in the recipes on
+   `main`, and the branch is kept only as history.
 2. It asks HaikuPorter, running on the host, which active arm64 ports the changed files
    belong to (`--ports-for-files --active-versions-only`). A recipe for a version arm64
    does not use, such as gcc 15, does not count.
@@ -195,7 +198,7 @@ On the VM, as `kevin`, in `~/haiku-build` (the `BUILD_ROOT` the workflow uses):
   copied from the build that made them. Copy the images with `tar --sparse` over ssh,
   because `rsync -S` sends their empty space over the network.
 - `phase2/nightly-ports.txt` and `phase2/nightly-recipes.txt`.
-- `RenkuOSPorts`, a clone on `bootstrap/arm64`, with the `download/` directories copied
+- `RenkuOSPorts`, a clone on `main`, with the `download/` directories copied
   in. The workflow checks out the branch's head there on every run.
 - `haikuporter` and `haiku-licenses`, clones of github.com/haikuports/haikuporter and
   github.com/waddlesplash/haiku-licenses.

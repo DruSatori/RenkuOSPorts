@@ -7,7 +7,7 @@
 # the recipes or the port list, then start phase1b-run.sh as usual.
 #
 # PORTS_TREE is the RenkuOSPorts checkout to read recipes from (default: this
-# one) and PORTS_REF the commit to pack (default: bootstrap/arm64).
+# one) and PORTS_REF the commit to pack (default: origin/main).
 # MAKEFILE_ENGINE is a makefile_engine-*-any.hpkg from any Haiku build.
 # HAIKU_GEN, if set, is the generated directory of a regular (not
 # @bootstrap-raw) arm64 build where `jam haiku.hpkg haiku_devel.hpkg` has run.
@@ -29,7 +29,7 @@ D=$G/phase1b
 OUT=$R/phase1-packages/bootstrap
 OFF=$((73728 * 512))
 TREE=${PORTS_TREE:-$(cd "$HERE/../../.." && pwd)}
-REF=${PORTS_REF:-bootstrap/arm64}
+REF=${PORTS_REF:-origin/main}
 W=$R/nightly-prep
 ports=$(realpath "$1"); recipes=$(realpath "$2")
 [ -f "$ports" ] && [ -f "$recipes" ] || { echo "usage: $0 <nightly-ports.txt> <nightly-recipes.txt>"; exit 1; }
