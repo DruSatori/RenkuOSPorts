@@ -1,10 +1,10 @@
 #!/bin/bash
 # Usage: fetch-repo.sh <served-dir>
-# Runs on the server that hosts the arm64 package repository. It downloads
-# renkuosports-arm64-repo.tar from the arm64-packages release when the release
-# has a new one, checks it, and unpacks it. Run it from cron after the nightly
-# build, which starts at 03:00 UTC; it does nothing when the release has not
-# changed.
+# Runs on the server that hosts a package repository. It downloads the
+# repository archive (by default renkuosports-arm64-repo.tar from the
+# arm64-packages release) when the release has a new one, checks it, and unpacks
+# it. Run it from cron after the nightly build; it does nothing when the release
+# has not changed.
 #
 # <served-dir> is the path the web server serves at the repository's baseurl.
 # The script makes it a symlink to <served-dir>.d/<checksum>, and switches the
@@ -12,14 +12,18 @@
 # previous copy for clients still downloading from it, and deletes older ones.
 #
 # RELEASE_URL overrides where the files come from (default: the arm64-packages
-# release of RenkuOS/RenkuOSPorts).
+# release of RenkuOS/RenkuOSPorts), and REPO_TAR the archive's name (default:
+# renkuosports-arm64-repo.tar). The RenkuOS system repositories work the same
+# way: RELEASE_URL=https://github.com/RenkuOS/Source/releases/download/nightly
+# with REPO_TAR=renkuos-<arch>-repo.tar, for x86_64, x86_gcc2, or arm64.
 set -e
 link=${1%/}
 [ -n "$link" ] || { echo "usage: $0 <served-dir>"; exit 1; }
 [ ! -e "$link" ] || [ -L "$link" ] ||
 	{ echo "$link exists and is not a symlink: move it out of the way first"; exit 1; }
 url=${RELEASE_URL:-https://github.com/RenkuOS/RenkuOSPorts/releases/download/arm64-packages}
-tar=renkuosports-arm64-repo.tar
+tar=${REPO_TAR:-renkuosports-arm64-repo.tar}
+[[ $tar != */* ]] || { echo "REPO_TAR must be a file name, not a path"; exit 1; }
 store=$link.d
 # The link is relative, so the served tree can move.
 rel=${store##*/}
