@@ -67,7 +67,12 @@ TEST_REQUIRES="
 
 BUILD()
 {
-	./bootstrap
+	# bootstrap refuses to run without a .git directory, which HaikuPorter only
+	# creates when git is available (not with --no-git-repo). The release
+	# tarball is already bootstrapped.
+	if [ -d .git ]; then
+		./bootstrap
+	fi
 	runConfigure ./configure
 	make $jobArgs
 }

@@ -18,7 +18,7 @@
 # HAIKUPORTER is haikuporter.py in the HaikuPorter checkout the host runs. The
 # guest runs the same checkout, so that both agree on how the repository works.
 # REBUILD=1 builds every port in the list again, for a changed recipe: it
-# clears the port's marker and moves its main package out of HaikuPorter's
+# clears the port's marker and moves its packages out of HaikuPorter's
 # packages directory. Bump the recipe's REVISION, because the host keeps the
 # first copy of each package file name.
 set -e
@@ -167,11 +167,20 @@ done
 [ -n "$haiku" ] && ! grep -a -q " Locale settings$" $BFSQ_OUT &&
 	cmds+=("cp :$W/locale.settings '$H/config/settings/Locale settings'")
 if [ -n "$REBUILD" ]; then
+	built=$(awk -v d="$H/haikuports/packages:" '$0 == d { f = 1; next }
+		/^\/myfs.*:$/ { f = 0 } f { print $NF }' $HOME_OUT)
 	for p in $(cat "$ports"); do
 		cmds+=("rm $H/nightly/$p")
-		for f in $(awk -v d="$H/haikuports/packages:" '$0 == d { f = 1; next }
-				/^\/myfs.*:$/ { f = 0 } f { print $NF }' $HOME_OUT | grep "^$p-[0-9].*\.hpkg$"); do
-			cmds+=("cp $H/haikuports/packages/$f $H/removed-old/$f" "rm $H/haikuports/packages/$f")
+		# The port's main package and its subpackages of the same version and
+		# revision, such as tiff_devel. A subpackage left behind still requires
+		# its old main package, and HaikuPorter would pick it for the next build.
+		for f in $(echo "$built" | grep "^$p-[0-9].*\.hpkg$"); do
+			vr=${f#$p-}; vr=${vr%-*.hpkg}
+			for g in $f $(echo "$built" | grep "^${p}_"); do
+				gvr=${g#*-}; gvr=${gvr%-*.hpkg}
+				[ "$gvr" = "$vr" ] || continue
+				cmds+=("cp $H/haikuports/packages/$g $H/removed-old/$g" "rm $H/haikuports/packages/$g")
+			done
 		done
 	done
 fi
