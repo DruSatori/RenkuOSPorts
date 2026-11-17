@@ -7829,3 +7829,505 @@ index 8247434..0732b98 100644
 -- 
 2.51.0
 
+
+From d088d99eaae58f89b4d613ce9b8ee78da9ffbfb1 Mon Sep 17 00:00:00 2001
+From: DruSatori <dru@druware.com>
+Date: Tue, 17 Nov 2026 17:02:14 -0500
+Subject: gdb: add Haiku aarch64 support
+
+Native target and OS ABI for aarch64-unknown-haiku. Only the general purpose registers are available from the kernel (struct arm64_debug_cpu_state); FP/SIMD registers are reported as unavailable. No hardware breakpoints or watchpoints, so GDB falls back to software ones.
+---
+ gdb/Makefile.in          |   3 +
+ gdb/aarch64-haiku-nat.c  | 123 +++++++++++++++++++++++++++++++++++++++
+ gdb/aarch64-haiku-tdep.c |  65 +++++++++++++++++++++
+ gdb/configure.host       |   1 +
+ gdb/configure.nat        |   6 ++
+ gdb/configure.tgt        |   5 ++
+ 6 files changed, 203 insertions(+)
+ create mode 100644 gdb/aarch64-haiku-nat.c
+ create mode 100644 gdb/aarch64-haiku-tdep.c
+
+diff --git a/gdb/Makefile.in b/gdb/Makefile.in
+index f595cfd..cd353a0 100644
+--- a/gdb/Makefile.in
++++ b/gdb/Makefile.in
+@@ -744,6 +744,7 @@ ALL_AMD_DBGAPI_TARGET_OBS = \
+ # (used with --enable-targets=all --enable-64-bit-bfd).
+ ALL_64_TARGET_OBS = \
+ 	aarch64-fbsd-tdep.o \
++	aarch64-haiku-tdep.o \
+ 	aarch64-linux-tdep.o \
+ 	aarch64-newlib-tdep.o \
+ 	aarch64-ravenscar-thread.o \
+@@ -1802,6 +1803,8 @@ ALLDEPFILES = \
+ 	aarch32-tdep.c \
+ 	aarch64-fbsd-nat.c \
+ 	aarch64-fbsd-tdep.c \
++	aarch64-haiku-nat.c \
++	aarch64-haiku-tdep.c \
+ 	aarch64-linux-nat.c \
+ 	aarch64-linux-tdep.c \
+ 	aarch64-newlib-tdep.c \
+diff --git a/gdb/aarch64-haiku-nat.c b/gdb/aarch64-haiku-nat.c
+new file mode 100644
+index 0000000..f69bda2
+--- /dev/null
++++ b/gdb/aarch64-haiku-nat.c
+@@ -0,0 +1,123 @@
++/* Native-dependent code for Haiku/aarch64.
++
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++   This file is part of GDB.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++#include "defs.h"
++
++#include "aarch64-tdep.h"
++#include "regcache.h"
++#include "haiku-nat.h"
++#include "nat/haiku-nat.h"
++
++/* Very conservative inclusion of Haiku headers to prevent name clashes.  */
++#include <arch/arm64/arch_debugger.h>
++
++/* The kernel only exposes the general purpose registers (x0-x29, lr, sp,
++   pc as elr and cpsr as spsr) in `struct arm64_debug_cpu_state'.  FP/SIMD
++   registers are not available and are reported as unavailable.  */
++
++static void
++aarch64_haiku_supply_gregs (struct regcache *regcache,
++                            const arm64_debug_cpu_state &state)
++{
++  for (int i = 0; i < 30; ++i)
++    regcache->raw_supply (AARCH64_X0_REGNUM + i, &state.x[i]);
++  regcache->raw_supply (AARCH64_LR_REGNUM, &state.lr);
++  regcache->raw_supply (AARCH64_SP_REGNUM, &state.sp);
++  regcache->raw_supply (AARCH64_PC_REGNUM, &state.elr);
++  regcache->raw_supply (AARCH64_CPSR_REGNUM, &state.spsr);
++}
++
++static void
++aarch64_haiku_collect_gregs (const struct regcache *regcache, int regno,
++                             arm64_debug_cpu_state &state)
++{
++  for (int i = 0; i < 30; ++i)
++    if (regno == -1 || regno == AARCH64_X0_REGNUM + i)
++      regcache->raw_collect (AARCH64_X0_REGNUM + i, &state.x[i]);
++  if (regno == -1 || regno == AARCH64_LR_REGNUM)
++    regcache->raw_collect (AARCH64_LR_REGNUM, &state.lr);
++  if (regno == -1 || regno == AARCH64_SP_REGNUM)
++    regcache->raw_collect (AARCH64_SP_REGNUM, &state.sp);
++  if (regno == -1 || regno == AARCH64_PC_REGNUM)
++    regcache->raw_collect (AARCH64_PC_REGNUM, &state.elr);
++  if (regno == -1 || regno == AARCH64_CPSR_REGNUM)
++    regcache->raw_collect (AARCH64_CPSR_REGNUM, &state.spsr);
++}
++
++struct aarch64_haiku_nat_target final : public haiku_nat_target
++{
++  void fetch_registers (struct regcache *, int) override;
++  void store_registers (struct regcache *, int) override;
++};
++
++void
++aarch64_haiku_nat_target::fetch_registers (struct regcache *regcache,
++                                           int regno)
++{
++  arm64_debug_cpu_state state;
++
++  if (haiku_nat::get_cpu_state (regcache->ptid (), &state) < 0)
++    {
++      /* This happens when the inferior is killed by another process
++         while being stopped. The nub port has been deleted, so we cannot
++         send the required message to get the CPU state.  */
++      haiku_nat_debug_printf ("Failed to get actual CPU state: %s",
++                              strerror (errno));
++      memset (&state, 0, sizeof (state));
++    }
++
++  aarch64_haiku_supply_gregs (regcache, state);
++
++  /* Everything past the general purpose registers (V0-V31, FPSR, FPCR)
++     is not provided by the kernel.  */
++  for (int i = AARCH64_CPSR_REGNUM + 1;
++       i < gdbarch_num_regs (regcache->arch ()); ++i)
++    regcache->raw_supply (i, nullptr);
++}
++
++void
++aarch64_haiku_nat_target::store_registers (struct regcache *regcache,
++                                           int regno)
++{
++  if (regno > AARCH64_CPSR_REGNUM)
++    error (_("Haiku/aarch64 cannot write FP/SIMD registers"));
++
++  arm64_debug_cpu_state state;
++
++  if (haiku_nat::get_cpu_state (regcache->ptid (), &state) < 0)
++    {
++      haiku_nat_debug_printf ("Failed to get actual CPU state: %s",
++                              strerror (errno));
++      return;
++    }
++
++  aarch64_haiku_collect_gregs (regcache, regno, state);
++
++  if (haiku_nat::set_cpu_state (regcache->ptid (), &state) < 0)
++    perror_with_name (("haiku_nat::set_cpu_state"));
++}
++
++static aarch64_haiku_nat_target the_aarch64_haiku_nat_target;
++
++INIT_GDB_FILE (aarch64_haiku_nat)
++{
++  haiku_target = &the_aarch64_haiku_nat_target;
++
++  add_inf_child_target (&the_aarch64_haiku_nat_target);
++}
+diff --git a/gdb/aarch64-haiku-tdep.c b/gdb/aarch64-haiku-tdep.c
+new file mode 100644
+index 0000000..ec835c0
+--- /dev/null
++++ b/gdb/aarch64-haiku-tdep.c
+@@ -0,0 +1,65 @@
++/* Target-dependent code for Haiku/aarch64.
++
++   Copyright (C) 2026 Free Software Foundation, Inc.
++
++   This file is part of GDB.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++#include "defs.h"
++
++#include "aarch64-tdep.h"
++#include "haiku-tdep.h"
++#include "osabi.h"
++
++/* No signal trampoline unwinder: on arm64 commpage_signal_handler is a
++   compiler-generated C function (arch_user_signal_handler), so the
++   location of signal_frame_data is not fixed relative to its frame.  */
++
++static void
++aarch64_haiku_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
++{
++  aarch64_gdbarch_tdep *tdep = gdbarch_tdep<aarch64_gdbarch_tdep> (gdbarch);
++
++  haiku_init_abi (info, gdbarch);
++
++  /* The index of the PC in the jmp_buf structure, in units of jb_elt_size.
++     From src/system/libroot/posix/arch/arm64/sigsetjmp.S: x19-x30 are
++     stored first, so lr (x30, the return address) is at offset 88.  */
++  tdep->jb_pc = 11;
++  tdep->jb_elt_size = 8;
++}
++
++static enum gdb_osabi
++aarch64_haiku_osabi_sniffer (bfd *abfd)
++{
++  const char *target_name = bfd_get_target (abfd);
++
++  if (strcmp (target_name, "elf64-littleaarch64") != 0)
++    return GDB_OSABI_UNKNOWN;
++
++  if (!haiku_check_required_symbols (abfd))
++    return GDB_OSABI_UNKNOWN;
++
++  return GDB_OSABI_HAIKU;
++}
++
++INIT_GDB_FILE (aarch64_haiku_tdep)
++{
++  gdbarch_register_osabi_sniffer (bfd_arch_aarch64, bfd_target_elf_flavour,
++                                  aarch64_haiku_osabi_sniffer);
++
++  gdbarch_register_osabi (bfd_arch_aarch64, 0, GDB_OSABI_HAIKU,
++                          aarch64_haiku_init_abi);
++}
+diff --git a/gdb/configure.host b/gdb/configure.host
+index f56ffd2..98f838a 100644
+--- a/gdb/configure.host
++++ b/gdb/configure.host
+@@ -81,6 +81,7 @@ case "${host}" in
+ 
+ aarch64*-*-linux*)	gdb_host=linux ;;
+ aarch64*-*-freebsd*)	gdb_host=fbsd ;;
++aarch64*-*-haiku*)	gdb_host=haiku64 ;;
+ 
+ alpha*-*-linux*)	gdb_host=alpha-linux ;;
+ alpha*-*-netbsdaout* | alpha*-*-knetbsdaout*-gnu)
+diff --git a/gdb/configure.nat b/gdb/configure.nat
+index bf5586c..fc24f25 100644
+--- a/gdb/configure.nat
++++ b/gdb/configure.nat
+@@ -519,6 +519,12 @@ case ${gdb_host} in
+ 		LOADLIBES='-lnetwork -lposix_error_mapper'
+ 		MH_CFLAGS='-DB_USE_POSITIVE_POSIX_ERRORS'
+ 		;;
++	    aarch64)
++		# Host: Haiku/aarch64
++		NATDEPFILES="${NATDEPFILES} aarch64-haiku-nat.o"
++		LOADLIBES='-lnetwork -lposix_error_mapper'
++		MH_CFLAGS='-DB_USE_POSITIVE_POSIX_ERRORS'
++		;;
+ 	esac
+ 	;;
+     ppc64-linux)
+diff --git a/gdb/configure.tgt b/gdb/configure.tgt
+index 52cb59a..5569501 100644
+--- a/gdb/configure.tgt
++++ b/gdb/configure.tgt
+@@ -145,6 +145,11 @@ aarch64*-*-freebsd*)
+ 	gdb_target_obs="aarch64-fbsd-tdep.o"
+ 	;;
+ 
++aarch64*-*-haiku*)
++	# Target: Haiku/aarch64
++	gdb_target_obs="aarch64-haiku-tdep.o"
++	;;
++
+ aarch64*-*-linux*)
+ 	# Target: AArch64 linux
+ 	gdb_target_obs="aarch64-linux-tdep.o arch/aarch64.o\
+-- 
+2.51.0
+
+
+From 4e3b1ff18e70662e868be012ca71e86acbc08967 Mon Sep 17 00:00:00 2001
+From: DruSatori <dru@druware.com>
+Date: Tue, 17 Nov 2026 17:02:15 -0500
+Subject: gdbserver: add Haiku aarch64 support
+
+Register access through debug_cpu_state (general purpose registers only) and BRK #0 as the software breakpoint.
+---
+ gdbserver/configure.srv        |   9 +++
+ gdbserver/haiku-aarch64-low.cc | 140 +++++++++++++++++++++++++++++++++
+ 2 files changed, 149 insertions(+)
+ create mode 100644 gdbserver/haiku-aarch64-low.cc
+
+diff --git a/gdbserver/configure.srv b/gdbserver/configure.srv
+index 3747013..2f2b86c 100644
+--- a/gdbserver/configure.srv
++++ b/gdbserver/configure.srv
+@@ -67,6 +67,15 @@ case "${gdbserver_host}" in
+ 			srv_tgtobj="${srv_tgtobj} nat/netbsd-nat.o"
+ 			srv_tgtobj="${srv_tgtobj} arch/aarch64-insn.o arch/aarch64.o"
+ 			;;
++  aarch64*-*-haiku*)	srv_regobj=""
++			srv_tgtobj="haiku-low.o haiku-aarch64-low.o fork-child.o"
++			srv_tgtobj="${srv_tgtobj} nat/fork-inferior.o"
++			srv_tgtobj="${srv_tgtobj} nat/haiku-debug.o"
++			srv_tgtobj="${srv_tgtobj} nat/haiku-nat.o"
++			srv_tgtobj="${srv_tgtobj} nat/haiku-nub-message.o"
++			srv_tgtobj="${srv_tgtobj} nat/haiku-osdata.o"
++			srv_tgtobj="${srv_tgtobj} arch/aarch64-insn.o arch/aarch64.o"
++			;;
+   arc*-*-linux*)
+ 			srv_regobj=""
+ 			srv_tgtobj="linux-arc-low.o arch/arc.o $srv_linux_obj"
+diff --git a/gdbserver/haiku-aarch64-low.cc b/gdbserver/haiku-aarch64-low.cc
+new file mode 100644
+index 0000000..bab0188
+--- /dev/null
++++ b/gdbserver/haiku-aarch64-low.cc
+@@ -0,0 +1,140 @@
++/* Copyright (C) 2026 Free Software Foundation, Inc.
++
++   This file is part of GDB.
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
++
++#include "server.h"
++#include "target.h"
++
++#include "haiku-low.h"
++
++#include "arch/aarch64.h"
++#include "tdesc.h"
++
++#include "nat/haiku-nat.h"
++
++/* Very conservative inclusion of Haiku headers to prevent name clashes.  */
++#include <arch/arm64/arch_debugger.h>
++
++/* Haiku target op definitions for the aarch64 architecture.
++
++   The kernel only exposes the general purpose registers in
++   `struct arm64_debug_cpu_state' (x0-x29, lr, sp, pc as elr, cpsr as spsr);
++   FP/SIMD registers are reported as unavailable and cannot be written.  */
++
++class haiku_aarch64_target : public haiku_process_target
++{
++public:
++  void fetch_registers (regcache *regcache, int regno) override;
++
++  void store_registers (regcache *regcache, int regno) override;
++
++  const gdb_byte *sw_breakpoint_from_kind (int kind, int *size) override;
++
++protected:
++  virtual void low_arch_setup (process_info *process) override;
++};
++
++/* Implement the fetch_registers target_ops method.  */
++
++void
++haiku_aarch64_target::fetch_registers (struct regcache *regcache, int regno)
++{
++  arm64_debug_cpu_state state;
++
++  if (haiku_nat::get_cpu_state (current_thread->id, &state) < 0)
++    {
++      /* This happens when the inferior is killed by another process
++         while being stopped. The nub port has been deleted, so we cannot
++         send the required message to get the CPU state.  */
++      haiku_nat_debug_printf ("Failed to get actual CPU state: %s",
++                              strerror (errno));
++      memset (&state, 0, sizeof (state));
++    }
++
++  for (int i = 0; i < 30; ++i)
++    supply_register (regcache, AARCH64_X0_REGNUM + i, &state.x[i]);
++  supply_register (regcache, AARCH64_LR_REGNUM, &state.lr);
++  supply_register (regcache, AARCH64_SP_REGNUM, &state.sp);
++  supply_register (regcache, AARCH64_PC_REGNUM, &state.elr);
++  supply_register (regcache, AARCH64_CPSR_REGNUM, &state.spsr);
++
++  /* V0-V31, FPSR and FPCR are not provided by the kernel.  */
++  for (int i = AARCH64_V0_REGNUM; i <= AARCH64_FPCR_REGNUM; ++i)
++    supply_register (regcache, i, nullptr);
++}
++
++/* Implement the store_registers target_ops method.  */
++
++void
++haiku_aarch64_target::store_registers (struct regcache *regcache, int regno)
++{
++  arm64_debug_cpu_state state;
++
++  if (haiku_nat::get_cpu_state (current_thread->id, &state) < 0)
++    {
++      haiku_nat_debug_printf ("Failed to get actual CPU state: %s",
++                              strerror (errno));
++      return;
++    }
++
++  for (int i = 0; i < 30; ++i)
++    collect_register (regcache, AARCH64_X0_REGNUM + i, &state.x[i]);
++  collect_register (regcache, AARCH64_LR_REGNUM, &state.lr);
++  collect_register (regcache, AARCH64_SP_REGNUM, &state.sp);
++  collect_register (regcache, AARCH64_PC_REGNUM, &state.elr);
++  collect_register (regcache, AARCH64_CPSR_REGNUM, &state.spsr);
++
++  if (haiku_nat::set_cpu_state (current_thread->id, &state) < 0)
++    perror_with_name (("haiku_nat::set_cpu_state"));
++}
++
++const gdb_byte *
++haiku_aarch64_target::sw_breakpoint_from_kind (int kind, int *size)
++{
++  /* BRK #0, the same instruction GDB itself uses for aarch64.  The kernel
++     reports any BRK as a breakpoint hit with the PC still pointing at it.  */
++  static const gdb_byte aarch64_brk[] = { 0x00, 0x00, 0x20, 0xd4 };
++
++  *size = sizeof (aarch64_brk);
++  return aarch64_brk;
++}
++
++/* Architecture-specific setup for the current process.  */
++
++void
++haiku_aarch64_target::low_arch_setup (process_info *process)
++{
++  if (process == nullptr)
++    process = current_process ();
++
++  /* Set up the target description, once: it never changes.  */
++  static target_desc *tdesc = [] () {
++    static const char *expedite_regs[] = { "x29", "sp", "pc", nullptr };
++    target_desc *result = aarch64_create_target_description ({});
++    init_target_desc (result, expedite_regs, GDB_OSABI_HAIKU);
++    return result;
++  }();
++
++  process->tdesc = tdesc;
++}
++
++/* The singleton target ops object.  */
++
++static haiku_aarch64_target the_haiku_aarch64_target;
++
++/* The Haiku target ops object.  */
++
++haiku_process_target *the_haiku_target = &the_haiku_aarch64_target;
+-- 
+2.51.0
+
+
+From ade03437eace51b3fdbf02fd2e010936ff15eba6 Mon Sep 17 00:00:00 2001
+From: DruSatori <dru@druware.com>
+Date: Tue, 17 Nov 2026 17:52:22 -0500
+Subject: gdb: follow the debugger message renames in Haiku
+
+Haiku renamed B_DEBUG_START_PROFILER, B_DEBUG_STOP_PROFILER and B_DEBUG_WRITE_CORE_FILE to B_DEBUG_MESSAGE_* in January 2025 ("kernel/user_debugger: Add some padding/flexibility to debug_nub_message"), so the old names no longer build against current headers.
+---
+ gdb/nat/haiku-nub-message.h | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/gdb/nat/haiku-nub-message.h b/gdb/nat/haiku-nub-message.h
+index fc41efe..582a88d 100644
+--- a/gdb/nat/haiku-nub-message.h
++++ b/gdb/nat/haiku-nub-message.h
+@@ -81,10 +81,11 @@ HAIKU_ASSOCIATE_MESSAGE_DATA (B_DEBUG_MESSAGE_SET_SIGNAL_HANDLER,
+                               debug_nub_set_signal_handler);
+ HAIKU_ASSOCIATE_MESSAGE_DATA_WITH_REPLY (B_DEBUG_MESSAGE_GET_SIGNAL_HANDLER,
+                                          debug_nub_get_signal_handler);
+-HAIKU_ASSOCIATE_MESSAGE_DATA_WITH_REPLY (B_DEBUG_START_PROFILER,
++HAIKU_ASSOCIATE_MESSAGE_DATA_WITH_REPLY (B_DEBUG_MESSAGE_START_PROFILER,
+                                          debug_nub_start_profiler);
+-HAIKU_ASSOCIATE_MESSAGE_DATA (B_DEBUG_STOP_PROFILER, debug_nub_stop_profiler);
+-HAIKU_ASSOCIATE_MESSAGE_DATA_WITH_REPLY (B_DEBUG_WRITE_CORE_FILE,
++HAIKU_ASSOCIATE_MESSAGE_DATA (B_DEBUG_MESSAGE_STOP_PROFILER,
++                              debug_nub_stop_profiler);
++HAIKU_ASSOCIATE_MESSAGE_DATA_WITH_REPLY (B_DEBUG_MESSAGE_WRITE_CORE_FILE,
+                                          debug_nub_write_core_file);
+ 
+ #undef HAIKU_ASSOCIATE_MESSAGE_DATA
+-- 
+2.51.0
+
