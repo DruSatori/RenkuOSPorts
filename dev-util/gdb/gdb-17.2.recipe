@@ -20,7 +20,7 @@ HOMEPAGE="https://sourceware.org/gdb/"
 COPYRIGHT="2024-2025 Free Software Foundation, Inc."
 LICENSE="GNU GPL v2
 	GNU GPL v3"
-REVISION="3"
+REVISION="4"
 SOURCE_URI="https://ftp.gnu.org/gnu/gdb/gdb-$portVersion.tar.xz"
 CHECKSUM_SHA256="1c036c0d72e4b3d1fb5c94c88632add6f9d76f4d7c4d2ea793c12a9f19a3228c"
 PATCHES="gdb-$portVersion.patchset"
@@ -45,11 +45,6 @@ PROVIDES="
 	cmd:gdb_add_index = $portVersion
 	cmd:gdbserver = $portVersion
 	cmd:gstack = $portVersion
-	devel:libbfd = $binutilsVersion
-	devel:libctf = $binutilsVersion
-	devel:libctf_nobfd = $binutilsVersion
-	devel:libopcodes = $binutilsVersion
-	devel:libsframe = $binutilsVersion
 	"
 
 REQUIRES="
@@ -65,6 +60,22 @@ REQUIRES="
 	$sourceHighlightLib
 	lib:libxxhash
 	lib:libz
+	"
+
+defineDebugInfoPackage gdb \
+	$binDir/gdb \
+	$binDir/gdbserver
+
+PROVIDES_devel="
+	gdb_devel = $portVersion
+	devel:libbfd = $binutilsVersion
+	devel:libctf = $binutilsVersion
+	devel:libctf_nobfd = $binutilsVersion
+	devel:libopcodes = $binutilsVersion
+	devel:libsframe = $binutilsVersion
+	"
+REQUIRES_devel="
+	gdb == $portVersion base
 	"
 
 BUILD_REQUIRES="
@@ -111,6 +122,7 @@ BUILD()
 
 	runConfigure --omit-dirs "docDir dataRootDir" ../configure \
 		--disable-nls \
+		--disable-sim \
 		$sourceHighlight \
 		--enable-tui \
 		--enable-languages=all \
@@ -134,6 +146,9 @@ INSTALL()
 		libsframe
 
 	rm $developLibDir/*.la
+
+	packageEntries devel \
+		$developDir
 }
 
 TEST()
