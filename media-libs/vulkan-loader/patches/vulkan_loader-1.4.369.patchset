@@ -1,56 +1,68 @@
-From 12f67b6e986bb35f023609c56506ba70b2d0cbe4 Mon Sep 17 00:00:00 2001
+From c26572afb31f5598bf85c6c786a116886fb123b1 Mon Sep 17 00:00:00 2001
 From: X512 <danger_mail@list.ru>
 Date: Sun, 9 Jan 2022 06:34:23 +0900
-Subject: basic fixes for haiku
+Subject: [PATCH 1/4] basic fixes for haiku
 
+Rebased onto 1.4.369: upstream reformatted loader.c and
+loader_environment.c ("char *" became "char*"), so both hunks were
+carried over by hand. The change is the same; the xdg_* globals now use
+the new pointer style and file-scope indentation.
+---
+ loader/loader.c             | 11 +++++++++++
+ loader/loader_environment.c |  2 +-
+ 2 files changed, 12 insertions(+), 1 deletion(-)
 
 diff --git a/loader/loader.c b/loader/loader.c
-index 96081bc..f1d3a3c 100644
+index 679798b..a8392cb 100644
 --- a/loader/loader.c
 +++ b/loader/loader.c
 @@ -89,6 +89,17 @@ struct activated_layer_info {
-     char *enable_value_env;
+     char* enable_value_env;
  };
  
 +#if defined(__HAIKU__)
-+    char *xdg_config_home = NULL;
-+    char *xdg_config_dirs = NULL;
-+    char *xdg_data_home = NULL;
-+    char *xdg_data_dirs =
-+        "/boot/home/config/non-packaged/add-ons:"
-+        "/boot/home/config/add-ons:"
-+        "/boot/system/non-packaged/add-ons:"
-+        "/boot/system/add-ons";
++char* xdg_config_home = NULL;
++char* xdg_config_dirs = NULL;
++char* xdg_data_home = NULL;
++char* xdg_data_dirs =
++    "/boot/home/config/non-packaged/add-ons:"
++    "/boot/home/config/add-ons:"
++    "/boot/system/non-packaged/add-ons:"
++    "/boot/system/add-ons";
 +#endif
 +
  // thread safety lock for accessing global data structures such as "loader"
  // all entrypoints on the instance chain need to be locked except GPA
  // additionally CreateDevice and DestroyDevice needs to be locked
 diff --git a/loader/loader_environment.c b/loader/loader_environment.c
-index cc28638..96a5ac7 100644
+index bd59d49..cf2a21d 100644
 --- a/loader/loader_environment.c
 +++ b/loader/loader_environment.c
-@@ -49,7 +49,7 @@ char *loader_getenv(const char *name, const struct loader_instance *inst) {
+@@ -49,7 +49,7 @@ char* loader_getenv(const char* name, const struct loader_instance* inst) {
  }
  
- char *loader_secure_getenv(const char *name, const struct loader_instance *inst) {
+ char* loader_secure_getenv(const char* name, const struct loader_instance* inst) {
 -#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__)
 +#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__HAIKU__)
      // Apple does not appear to have a secure getenv implementation.
      // The main difference between secure getenv and getenv is that secure getenv
      // returns NULL if the process is being run with elevated privileges by a normal user.
 -- 
-2.56.0
+2.47.3
 
 
-From f388d8102664929d5f8f84778ce4b1ab0a0637c9 Mon Sep 17 00:00:00 2001
+From cf3d2e408e30164d399a9b86dbfbe6b4641897bc Mon Sep 17 00:00:00 2001
 From: Ken Mays <kmays2000@gmail.com>
 Date: Fri, 6 Sep 2024 05:26:34 +0000
-Subject: Improve port for Haiku
+Subject: [PATCH 2/4] Improve port for Haiku
 
+---
+ CMakeLists.txt              | 2 +-
+ loader/vk_loader_platform.h | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 619ab26..456cc6d 100644
+index 3c6adae..b680238 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -136,7 +136,7 @@ elseif(APPLE)
@@ -63,7 +75,7 @@ index 619ab26..456cc6d 100644
      option(BUILD_WSI_XLIB_SUPPORT "Build Xlib WSI support" ON)
      option(BUILD_WSI_XLIB_XRANDR_SUPPORT "Build X11 Xrandr WSI support" ON)
 diff --git a/loader/vk_loader_platform.h b/loader/vk_loader_platform.h
-index f232880..c5615c3 100644
+index 35794ce..6abb292 100644
 --- a/loader/vk_loader_platform.h
 +++ b/loader/vk_loader_platform.h
 @@ -26,7 +26,7 @@
@@ -85,17 +97,23 @@ index f232880..c5615c3 100644
  #else
  #define COMMON_UNIX_PLATFORMS 0
 -- 
-2.56.0
+2.47.3
 
 
-From 23aa390cd330cd10b082a5d78bd4cfa36b1da6a3 Mon Sep 17 00:00:00 2001
+From e0cde270700c8262933950407695705a293b27fc Mon Sep 17 00:00:00 2001
 From: X512 <danger_mail@list.ru>
 Date: Sun, 9 Mar 2025 19:11:24 +0900
-Subject: haiku: use FindDirectory
+Subject: [PATCH 3/4] haiku: use FindDirectory
 
+Rebased onto 1.4.369: upstream reformatted loader.c ("char *" became
+"char*"), so two hunks were carried over by hand. The change is the
+same.
+---
+ loader/loader.c | 32 +++++++++++++++++++++-----------
+ 1 file changed, 21 insertions(+), 11 deletions(-)
 
 diff --git a/loader/loader.c b/loader/loader.c
-index f1d3a3c..b1d83a8 100644
+index a8392cb..3c9de86 100644
 --- a/loader/loader.c
 +++ b/loader/loader.c
 @@ -45,6 +45,11 @@
@@ -111,34 +129,34 @@ index f1d3a3c..b1d83a8 100644
  #if defined(_WIN32)
  #include "dirent_on_windows.h"
 @@ -89,17 +94,6 @@ struct activated_layer_info {
-     char *enable_value_env;
+     char* enable_value_env;
  };
  
 -#if defined(__HAIKU__)
--    char *xdg_config_home = NULL;
--    char *xdg_config_dirs = NULL;
--    char *xdg_data_home = NULL;
--    char *xdg_data_dirs =
--        "/boot/home/config/non-packaged/add-ons:"
--        "/boot/home/config/add-ons:"
--        "/boot/system/non-packaged/add-ons:"
--        "/boot/system/add-ons";
+-char* xdg_config_home = NULL;
+-char* xdg_config_dirs = NULL;
+-char* xdg_data_home = NULL;
+-char* xdg_data_dirs =
+-    "/boot/home/config/non-packaged/add-ons:"
+-    "/boot/home/config/add-ons:"
+-    "/boot/system/non-packaged/add-ons:"
+-    "/boot/system/add-ons";
 -#endif
 -
  // thread safety lock for accessing global data structures such as "loader"
  // all entrypoints on the instance chain need to be locked except GPA
  // additionally CreateDevice and DestroyDevice needs to be locked
-@@ -3086,6 +3080,9 @@ VkResult read_data_files_in_search_paths(const struct loader_instance *inst, enu
+@@ -2997,6 +2991,9 @@ VkResult read_data_files_in_search_paths(const struct loader_instance* inst, enu
  
  #if defined(_WIN32)
-     char *package_path = NULL;
+     char* package_path = NULL;
 +#elif defined(__HAIKU__)
 +    char** directories = NULL;
 +    size_t directory_count = 0;
  #elif COMMON_UNIX_PLATFORMS
      // Determine how much space is needed to generate the full search path
      // for the current manifest files.
-@@ -3250,6 +3247,17 @@ VkResult read_data_files_in_search_paths(const struct loader_instance *inst, enu
+@@ -3161,6 +3158,17 @@ VkResult read_data_files_in_search_paths(const struct loader_instance* inst, enu
                  goto out;
              }
          }
@@ -156,7 +174,7 @@ index f1d3a3c..b1d83a8 100644
  #elif COMMON_UNIX_PLATFORMS
          bool search_outside_of_bundle = true;
  
-@@ -3398,6 +3406,8 @@ out:
+@@ -3309,6 +3317,8 @@ out:
      loader_free_getenv(override_env, inst);
  #if defined(_WIN32)
      loader_instance_heap_free(inst, package_path);
@@ -166,29 +184,35 @@ index f1d3a3c..b1d83a8 100644
  #if defined(__APPLE__)
      loader_instance_heap_free(inst, bundle_path);
 -- 
-2.56.0
+2.47.3
 
 
-From d41ecdd255d43e36bf619b6ca4f94688a40f522c Mon Sep 17 00:00:00 2001
+From f5943c86ff0efd7ad0dada3968891066497ddf4f Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Joachim=20Mairb=C3=B6ck?= <j.mairboeck@gmail.com>
 Date: Mon, 26 Oct 2026 17:05:33 +0100
-Subject: implement loader_platform_executable_path
+Subject: [PATCH 4/4] implement loader_platform_executable_path
 
+Rebased onto 1.4.369: upstream reformatted vk_loader_platform.c
+("char *" became "char*"), so the hunk was carried over by hand in the
+new style. The change is the same.
+---
+ loader/vk_loader_platform.c | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
 
 diff --git a/loader/vk_loader_platform.c b/loader/vk_loader_platform.c
-index 5ae5ff6..1a87453 100644
+index 37c3bcf..b174e17 100644
 --- a/loader/vk_loader_platform.c
 +++ b/loader/vk_loader_platform.c
-@@ -133,6 +133,27 @@ char *loader_platform_executable_path(const struct loader_instance *inst, bool *
+@@ -133,6 +133,27 @@ char* loader_platform_executable_path(const struct loader_instance* inst, bool*
  
      return buffer;
  }
 +#elif defined(__HAIKU__)
 +#include <image.h>
 +#include <string.h>
-+char *loader_platform_executable_path(const struct loader_instance *inst, bool *oom) {
++char* loader_platform_executable_path(const struct loader_instance* inst, bool* oom) {
 +    size_t size = MAXPATHLEN;
-+    char *buffer = loader_instance_heap_calloc(inst, size, VK_SYSTEM_ALLOCATION_SCOPE_COMMAND);
++    char* buffer = loader_instance_heap_calloc(inst, size, VK_SYSTEM_ALLOCATION_SCOPE_COMMAND);
 +    if (NULL == buffer) {
 +        *oom = true;
 +        return NULL;
@@ -205,8 +229,8 @@ index 5ae5ff6..1a87453 100644
 +    return NULL;
 +}
  #elif defined(__Fuchsia__) || defined(__OpenBSD__)
- char *loader_platform_executable_path(const struct loader_instance *inst, bool *oom) {
+ char* loader_platform_executable_path(const struct loader_instance* inst, bool* oom) {
      (void)inst;
 -- 
-2.56.0
+2.47.3
 

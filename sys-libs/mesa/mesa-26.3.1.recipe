@@ -1,14 +1,14 @@
 SUMMARY="Multi-platform GL implementation"
 DESCRIPTION="Mesa is an open-source implementation of the OpenGL \
 specification, which documents a system for rendering interactive \
-3D graphics. Mesa fills the role of the Haiku OpenGL kit, \
-providing 3D rendering to Haiku applications."
+3D graphics. Through libglvnd, Mesa provides OpenGL, EGL and \
+Vulkan rendering to RenkuOS applications."
 HOMEPAGE="https://www.mesa3d.org/"
 COPYRIGHT="1999-2026 Brian Paul"
 LICENSE="MIT"
-REVISION="1"
-SOURCE_URI="https://mesa.freedesktop.org/archive/mesa-${portVersion}.tar.xz"
-CHECKSUM_SHA256="59217efeac3b64e7ced958324b9db7494f1e0741aeb22d780276514cc1b8f206"
+REVISION="3"
+SOURCE_URI="https://archive.mesa3d.org/mesa-${portVersion}.tar.xz"
+CHECKSUM_SHA256="4e4e438eac7b840a9383988cbb7c08dad8041da544b9319fc26d319fa7348961"
 PATCHES="mesa-$portVersion.patchset"
 
 ADDITIONAL_FILES="50_mesa.json"
@@ -24,7 +24,6 @@ llvmMajor=21
 
 PROVIDES="
 	mesa$secondaryArchSuffix = $portVersion
-	lib:libglapi$secondaryArchSuffix = 0.0.0
 	"
 REQUIRES="
 	haiku$secondaryArchSuffix
@@ -36,16 +35,15 @@ REQUIRES="
 
 PROVIDES_devel="
 	mesa${secondaryArchSuffix}_devel = $portVersion
-	devel:libglapi$secondaryArchSuffix = 0.0.0
 	"
 REQUIRES_devel="
 	mesa$secondaryArchSuffix == $portVersion base
 	devel:libGL$secondaryArchSuffix
 	"
 
-SUMMARY_eglvnd="The Mesa glvnd rendering drivers for Haiku"
+SUMMARY_eglvnd="The Mesa glvnd rendering drivers"
 DESCRIPTION_eglvnd="This glvnd rendering driver package provides \
-software pipe rendering (with LLVM-bosted performance)."
+software pipe rendering (with LLVM-boosted performance)."
 
 PROVIDES_eglvnd="
 	mesa${secondaryArchSuffix}_eglvnd = $portVersion
@@ -56,7 +54,7 @@ REQUIRES_eglvnd="
 	"
 
 SUMMARY_lavapipe="Vulkan software rasteriser driver"
-DESCRIPTION_lavapipe="Lavapipe is Mesa's software-based Vulkan 1.2 \
+DESCRIPTION_lavapipe="Lavapipe is Mesa's software-based Vulkan 1.4 \
 implementation akin to LLVMpipe for OpenGL."
 
 PROVIDES_lavapipe="
