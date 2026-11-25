@@ -203,3 +203,78 @@ index 8a987171..f14e476f 100644
 -- 
 2.54.0 (Apple Git-157)
 
+From c63e7002157e7ad979ff6fc05c9229ea2e731e9a Mon Sep 17 00:00:00 2001
+From: DruSatori <dru@druware.com>
+Date: Tue, 24 Nov 2026 15:52:26 -0500
+Subject: Set window.opener for pages created by
+ createWindow/dispatchCreatePage
+
+WebCore does not set the opener of a new page's main frame itself: for
+window.open it only asserts the opener after ChromeClient::createWindow
+returns, and for target=_blank it does the same after
+LocalFrameLoaderClient::dispatchCreatePage. Setting it is left to the
+embedder, and the Haiku port never did, so popups always saw
+window.opener === null.
+
+Mirror Mac WebKitLegacy (WebChromeClient::createWindow and
+WebFrameLoaderClient::dispatchCreatePage): call
+setOpenerForWebKitLegacy() on the new main frame unless the window was
+opened with noopener/noreferrer (NewFrameOpenerPolicy::Suppress).
+---
+ .../haiku/WebCoreSupport/ChromeClientHaiku.cpp            | 8 ++++++--
+ .../haiku/WebCoreSupport/FrameLoaderClientHaiku.cpp       | 8 ++++++--
+ 2 files changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/Source/WebKitLegacy/haiku/WebCoreSupport/ChromeClientHaiku.cpp b/Source/WebKitLegacy/haiku/WebCoreSupport/ChromeClientHaiku.cpp
+index ddd829e8..e402f0ab 100644
+--- a/Source/WebKitLegacy/haiku/WebCoreSupport/ChromeClientHaiku.cpp
++++ b/Source/WebKitLegacy/haiku/WebCoreSupport/ChromeClientHaiku.cpp
+@@ -133,7 +133,7 @@ void ChromeClientHaiku::focusedFrameChanged(Frame*)
+     notImplemented();
+ }
+ 
+-RefPtr<Page> ChromeClientHaiku::createWindow(LocalFrame& /*frame*/, const WTF::String&, const WindowFeatures& features, const NavigationAction& /*action*/)
++RefPtr<Page> ChromeClientHaiku::createWindow(LocalFrame& frame, const WTF::String&, const WindowFeatures& features, const NavigationAction& /*action*/)
+ {
+ 	// FIXME: I believe the frame is important for cloning session information.
+ 	// From looking through the Chromium port code, it is passed to the
+@@ -164,8 +164,12 @@ RefPtr<Page> ChromeClientHaiku::createWindow(LocalFrame& /*frame*/, const WTF::S
+ 	if (features.height)
+ 		windowFrame.bottom = windowFrame.top + *features.height - 1;
+ 
+-	return m_webPage->createNewPage(windowFrame, features.dialog.value_or(false),
++	Page* page = m_webPage->createNewPage(windowFrame, features.dialog.value_or(false),
+ 		features.resizable.value_or(true), true, m_webPage->GetContext());
++	// WebCore leaves setting the opener to the embedder, as in Mac WebChromeClient.
++	if (page && !features.wantsNoOpener())
++		page->mainFrame().setOpenerForWebKitLegacy(&frame);
++	return page;
+ }
+ 
+ void ChromeClientHaiku::show()
+diff --git a/Source/WebKitLegacy/haiku/WebCoreSupport/FrameLoaderClientHaiku.cpp b/Source/WebKitLegacy/haiku/WebCoreSupport/FrameLoaderClientHaiku.cpp
+index 6e719a06..54f0836f 100644
+--- a/Source/WebKitLegacy/haiku/WebCoreSupport/FrameLoaderClientHaiku.cpp
++++ b/Source/WebKitLegacy/haiku/WebCoreSupport/FrameLoaderClientHaiku.cpp
+@@ -517,12 +517,16 @@ void FrameLoaderClientHaiku::dispatchWillSubmitForm(FormState&, URL&&, String&&,
+     function();
+ }
+ 
+-LocalFrame* FrameLoaderClientHaiku::dispatchCreatePage(const NavigationAction& /*action*/, NewFrameOpenerPolicy, const WTF::String& openedMainFrame)
++LocalFrame* FrameLoaderClientHaiku::dispatchCreatePage(const NavigationAction& /*action*/, NewFrameOpenerPolicy policy, const WTF::String& openedMainFrame)
+ {
+     CALLED();
+     WebCore::Page* page = m_webPage->createNewPage();
+-    if (page)
++    if (page) {
++        // WebCore leaves setting the opener to the embedder, as in Mac WebFrameLoaderClient.
++        if (policy == NewFrameOpenerPolicy::Allow && m_webFrame && m_webFrame->Frame())
++            page->mainFrame().setOpenerForWebKitLegacy(m_webFrame->Frame());
+         return static_cast<WebCore::LocalFrame*>(&page->mainFrame());
++    }
+ 
+     return 0;
+ }
+-- 
+2.54.0 (Apple Git-157)
+
